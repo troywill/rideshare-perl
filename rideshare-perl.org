@@ -1,0 +1,1510 @@
+* Step By Step
+  1. [ ] Tangle ./gpslocation.pl to be able to write gps location to file
+     1. [ ] pacman --sync perl-io-socket-inet6
+     1. [ ] pacman --sync perl-json
+  2. [ ] Tangle ./rideshare.menu.pl
+  3. [ ] Define log location and filename
+     1. [ ] ~/rideshare/log/160421.log
+  4. [ ] Tangle ./screenshot
+* ./bin/gpslocation.pl
+  #+BEGIN_SRC perl :tangle ./bin/gpslocation.pl :shebang #!/usr/bin/env perl
+    use warnings;
+    use strict;
+
+    my $string = $ARGV[0] || 'none';
+
+    print '|' . "$string" . '|';
+
+    use IO::Socket::INET6;
+    use JSON;
+    use Math::Round;
+    use Getopt::Long;
+    $| = 1;
+    use FindBin qw($Bin);
+    use File::Basename;
+    use lib "$Bin/../lib";
+    require "globalsat-lib.pm";
+    # require "globalsat-database.pm";
+
+    # read-config-chunk ??
+    use AppConfig;
+
+    # create a new AppConfig object
+    my $config = AppConfig->new;
+
+    # define new variables
+    $config->define('DATABASE=s');
+    $config->define('TRIGGER_SPEED=s');
+    $config->define('NEAREST_SPEED=s');
+
+    # read configuration file
+    $config->file("$Bin/../globalsat.conf");
+
+    my $DATABASE = $config->get("DATABASE");
+    my $TRIGGER_SPEED = $config->get("TRIGGER_SPEED");
+    my $NEAREST_SPEED = $config->get("NEAREST_SPEED");
+
+    my $debug;
+    my $name = '';
+    my $loop = 1;
+    my $delay = 0;
+    my $epx_limit = 1000;
+    my $epy_limit = 1000;
+
+    GetOptions ( "name=s" => \$name,
+                 "loop=i" => \$loop,
+                 "epx=i"  => \$epx_limit,
+                 "epy=i"  => \$epy_limit,
+                 "delay=i"  => \$delay,
+                 "debug"  => \$debug )
+
+    or die("Error in command line arguments\n");
+
+    # make_gpspoint_table();
+
+    use IO::Socket::INET6;
+    my $gpsd_socket = new IO::Socket::INET6 (
+        PeerAddr => 'localhost',
+        PeerPort => '2947',
+        Proto => 'tcp',
+        Blocking => 1
+        ) or die "Could not create socket: $!\n";
+
+    $gpsd_socket->send('?WATCH={"enable":true,"json":true}');
+
+    use DateTime::Format::ISO8601;
+    my $iso8601 = DateTime::Format::ISO8601->new();
+    my $tz = DateTime::TimeZone->new(name => "local");
+
+    sub convert_time {
+        my $iso_time = shift;
+        my $tz = shift;
+        my $dt = DateTime::Format::ISO8601->new();
+        $dt = $iso8601->parse_datetime( $iso_time );
+        # $dt->add(seconds => $tz->offset_for_datetime($dt));
+        # $dt->set_time_zone( 'America/Los_Angeles' );
+        $dt->set_time_zone( $tz );
+        # return $dt->ymd . $dt->hms;
+        return $dt->datetime();
+    }
+    # print "HERE";
+    # my $dbh = DBI->connect("dbi:Pg:dbname=$DATABASE", "", "");
+    # print "HERE";
+
+    my $count = 0;
+
+    while ( my $json_line = <$gpsd_socket> ) {
+        my $tpv_hashref;
+        if ( $json_line =~ /TPV/ ) {
+        
+            if ( $debug ) {
+                print "$json_line\n";
+            };
+            $tpv_hashref = decode_json($json_line);
+            my ($lat, $lon, $time, $track, $mode, $speed, $alt, $epx, $epy, $epv ) = ( $tpv_hashref->{lat},
+                                                                                       $tpv_hashref->{lon},
+                                                                                       $tpv_hashref->{time},
+                                                                                       $tpv_hashref->{track},
+                                                                                       $tpv_hashref->{mode},
+                                                                                       $tpv_hashref->{speed},
+                                                                                       $tpv_hashref->{alt},
+                                                                                       $tpv_hashref->{epx},
+                                                                                       $tpv_hashref->{epy},
+                                                                                       $tpv_hashref->{epv}
+                );
+            if ($mode == 3) {
+                $speed = nearest($NEAREST_SPEED,$speed); # meters per second
+                $speed = 0 if $speed < $TRIGGER_SPEED;
+                $track = 0 if $speed == 0;
+                $lat = nearest(0.000001, $lat);
+                $lon = nearest(0.000001, $lon);
+                $track = nearest(1,$track);
+                $alt = nearest(1,$alt); # meters
+                $epx = nearest(0.1,$epx); # meters
+                $epy = nearest(0.1,$epy); # meters
+                $epv = nearest(1,$epv); # meters
+                my $localtime = convert_time( $time, $tz);
+                print "$localtime|$lat,$lon|$speed|$track\n";
+                if ($epx <= $epx_limit && $epy <= $epy_limit) {
+                    # my $rv = $dbh->do("INSERT INTO gpspoint VALUES(DEFAULT, \'$localtime\', \'$name\', $lat, $lon, $alt, $epx, $epy, $epv, $speed, $track);");
+                    $count++;
+                    if ( $debug ) {
+                        print "DEBUG: [$count $loop]\n";
+                    };
+                    last if $count >= $loop;
+                    sleep $delay;
+                }
+            }
+        
+        }
+        # last if $count >= $loop;
+    }
+
+    __END__
+
+  #+END_SRC
+* find-blue-dot [[file:./bin/find-blue-dot][find-blue-dot]] [[file:./bin/lib/find-blue-dot.pm][find-blue-dot.pm]]
+  #+TBLNAME: variables
+  | Variable         | Note                                                             |
+  |------------------+------------------------------------------------------------------|
+  | $screenshot      |                                                                  |
+  | $bx              | xcoordinate of center of blue dot                                |
+  | $by              | ycoordinate of center of blue dot                                |
+  | $br              | pixel radius of blue dot                                         |
+  |------------------+------------------------------------------------------------------|
+  | $radii,$degees   | polar coordinates from center of blue dot to do the color lookup |
+  |                  | 0 to right, 90 straight up, 180 to left                          |
+  |                  | 1 radian = 57.3 degrees                                                                 |
+  |------------------+------------------------------------------------------------------|
+  | $cell_x, $cell_y | point at which to do the color lookup                            |
+  #+BEGIN_SRC perl :tangle ./bin/find-blue-dot :shebang #!/usr/bin/env perl :noweb yes
+    <<pragma-block>>
+    use Image::Magick;
+    use FindBin qw($Bin);
+    use File::Basename;
+    use lib "$Bin/lib";
+    require "find-blue-dot.pm";
+    <<find-blue-dot-configuration>>    
+    <<find-blue-dot-options>>
+
+    help() if $help;
+
+    print "rad_x: $rad_y" if $verbose;
+    my ($image, $x, $height, $width);
+    my ($red, $green, $blue, $opacity) = (0,0,0,0);
+
+    $image = Image::Magick->new;
+    $x = $image->Read($screenshot);
+    warn "$x" if "$x";
+    $height = $image->Get('height'); $width = $image->Get('width');
+    crop_uber_screenshot($image, $width, '+0+336', 1650);
+    $height = $image->Get('height'); $width = $image->Get('width');
+    my ($bx, $by, $br) = find_blue_dot($image,$width,$height,$verbose);
+
+    # calculate point to do the color table lookup
+    my $cell_x = int($bx + cos($degrees/57.3)*($br*$radii));
+    my $cell_y = int($by - sin($degrees/57.3)*($br*$radii));
+
+    if ($verbose) {
+        print "(bx, by) => ($bx, $by)\n";
+        print "(cell_x, cell_y) => ($cell_x, $cell_y)\n";
+    }
+
+    if ($calibrate) {
+        calibrate($image, $bx, $by, $br, $cell_x, $cell_y);
+    }
+
+    if ($two_pi) {
+        two_pi( $image, $bx, $by, $br );
+    }
+
+    ($red,$green,$blue,$opacity) = get_pixel_values_and_draw_circle ($image,$cell_x,$cell_y);
+    my $surge = read_surge($zoom,$red,$green,$blue);
+
+    if ($surgeonly) {
+        print "$surge";
+        exit;
+    }
+
+    my $time = time;
+    my $image_dir_base = "/home/troy/rideshare/images/ref/z2/";
+    $image_dir_base = "/tmp/surge/";
+    my $image_filename = "$time.$surge.$red.$green.$blue.png";
+
+    my $image_location = $image_dir_base . "$surge/" . $image_filename;
+    $image_location = $image_dir_base . $image_filename;
+    print "image location: $image_location\n" if $verbose;
+    $x = $image->Write($image_location);
+    warn "$x" if "$x";
+
+    <<help_subroutine>>
+  #+END_SRC
+** help_subroutine
+   #+NAME: help_subroutine
+   #+BEGIN_SRC perl
+     sub help {
+         print <<END;
+         --calibrate
+	 --two_pi
+	 --surgeonly
+	 --verbose
+	 --zoom
+     END
+         exit;
+     }
+   #+END_SRC
+** [[file:bin/lib/find-blue-dot.pm][find-blue-dot.pm]]
+   #+BEGIN_SRC perl :tangle ./bin/lib/find-blue-dot.pm :padline no :noweb yes
+     use warnings;
+     use strict;
+     <<find_blue_dot_subroutine>>
+     <<crop_uber_screenshot_subroutine>>
+     <<read_surge_subroutine>>
+     <<get_pixel_values_and_draw_circle_subroutine>>
+     <<calibrate_subroutine>>
+     <<two_pi_subroutine>>
+     1;
+   #+END_SRC    
+*** two_pi_subroutine
+    #+TBLNAME: Argument variables
+    | Variable                 | Note                                                       |
+    |--------------------------+------------------------------------------------------------|
+    | $image                   |                                                            |
+    | $bx                      |                                                            |
+    | $by                      |                                                            |
+    | $br                      |                                                            |
+    | $cell_x, $cell_y         | location of point to do color lookup                       |
+    |--------------------------+------------------------------------------------------------|
+    | $radii_down --> $degrees | 1 radian = 57.3 degrees                                    |
+    |                          | Polar coordinates: 0 to right                              |
+    |                          | 90 straight up, 180 to left                                |
+    |--------------------------+------------------------------------------------------------|
+    | $px                      | x-value of point on circle drawn around color lookup point |
+    | $py                      | y-value of point on circle drawn around color lookup point |
+    |                          |                                                            |
+    #+NAME: two_pi_subroutine
+    #+BEGIN_SRC perl
+      sub two_pi {
+          my ( $image, $bx, $by, $br ) = @_;
+          my $directory = '/tmp/';
+          my $circle_file = "/tmp/360.txt";
+          open ( my $out, ">", $circle_file ) or die;
+	  print "==> $circle_file\n";
+    
+          my ($cell_x, $cell_y) = (0,0);
+    
+          my $image_file = "${directory}/360.png";
+    
+              # find 360 pixels around two radii circle
+          my $radii = 2;
+          for (0..359) {
+              my $degrees = $_;
+              # calculate point to do the color table lookup
+              $cell_x = int($bx + cos($degrees/57.3)*($br*$radii));
+              $cell_y = int($by - sin($degrees/57.3)*($br*$radii));
+        
+              # Get color values
+              my ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$cell_x,$cell_y]");
+	      my $surge = read_surge(2,$red,$green,$blue);
+              my $text = "$red\n$green\n$blue";
+              print $out "[$red, $green, $blue] => $surge\n";
+          }
+          # # draw a bulls eye around color lookup point
+          # my $px = $cell_x+int($br/4);
+          # my $py = $cell_y;
+          # $image->Draw(stroke=>'purple',primitive=>'circle',
+          #              points=>"${cell_x},${cell_y} ${px},${py}",
+          #              fill=>'none',
+          #              strokewidth=>1);
+    
+          # # Get color values
+          # my ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$cell_x,$cell_y]");
+          # my $text = "$red\n$green\n$blue";
+    
+          # # Crop area of interest for easier viewing
+          # my $crop_rect = (6*$br) . "x" . (6*$br);
+          # my $top_left = "+" . ($bx - int(3*$br)) . "+" . ($by - int(3*$br) + 0 );
+          # print "r = $br, top left: $top_left, top crop_rect: $crop_rect\n";
+          # my $x = $image->Crop(geometry=>"${crop_rect}${top_left}"); # e.g. $x = $image->Crop(geometry=>'100x100+100+100');
+          # warn "$x" if "$x";
+          # $x = $image->Set( page=>'0x0+0+0' );
+          # warn "$x" if "$x";
+    
+          # # Write color values
+          # $x = $image->Annotate(pointsize=>16, fill=>'green', text=>$text, x=>5, y=>10);
+          # warn "$x" if "$x";          
+          # $x = $image->Write($image_file);
+    
+          # # print $html_file "<img src=\"./${calibrate.png}\">";
+          # system("gwenview --fullscreen $image_file &");
+          # # system("chromium http://localhost/rideshare/calibrate &");
+          # warn "$x" if "$x";
+      }
+    #+END_SRC
+*** find_blue_dot_subroutine
+    #+NAME: find_blue_dot_subroutine
+    #+BEGIN_SRC perl
+      sub find_blue_dot {
+          my ($image, $width, $height, $verbose) = @_;
+
+          my $row_count = 0;
+          my $last = 1900;
+          my ($w, $h) = (0,0);
+
+          my $start_row = 0;
+          my $end_row = $height-1;
+          my $start_column = 0;
+          my $end_column = $width-1;
+
+          my $top_blue = -1;
+          my $bottom_blue = -1;
+
+          my $cache_file = '/tmp/cache_file';
+          if ( -e '/tmp/cache_file' ) {
+              print "/tmp/cache_file does exist\n" if $verbose;
+              open ( my $in, "<", $cache_file );
+              my $line = <$in>;
+              my ( $cx, $cy, $radius ) = split /,/, $line;
+              $start_row = $cy - int($radius/2);
+              $start_column = $cx - $radius -5;
+              $end_column = $cx + 2*$radius + 10;
+
+              for ( $start_row..$end_row ) {
+                  $h = $_;
+                  last if ($h >= $last);
+                  for ( $start_column..$end_column) {
+                      $w = $_;
+                      my ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$w,$h]");
+                      if ( $red == 16962 && $green == 34181 && $blue == 62708) {
+                          $row_count += 1;
+                      }
+                      if ( $row_count == 50 ) {
+                          my $cx = $w-25;
+                          my $cy = $h+3;
+                          my $px = $cx+3;
+                          my $py = $cy;
+                          $image->Draw(stroke=>'purple',primitive=>'circle',
+                                       points=>"${cx},${cy} ${px},${py}",
+                                       fill=>'none',
+                                       strokewidth=>1);
+                          open(my $cache, ">", $cache_file) or warn "unable to open $cache_file";
+                          print $cache "$cx,$cy,25";
+                          close($cache);
+                          return ($cx, $cy, 25);
+                      } else {
+                          unlink $cache_file;
+                      }
+                  }
+                  $row_count = 0;
+              }
+          }
+          # Failed finding location dot with cachefile, start again from top left
+          print "Failed finding location dot with cachefile, start again from top left\n" if $verbose;
+          $start_row = 0;
+          $end_row = $height-1;
+          $start_column = 0;
+          $end_column = $width-1;
+
+          for ( $start_row..$end_row ) {
+              $h = $_;
+              last if ($h >= $last);
+              for ( $start_column..$end_column) {
+                  $w = $_;
+                  my ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$w,$h]");
+                  if ( $red == 16962 && $green == 34181 && $blue == 62708) {
+                      $row_count += 1;
+                  }
+                  if ( $row_count == 50 ) {
+                      my $cx = $w-25;
+                      my $cy = $h+3;
+                      my $px = $cx+3;
+                      my $py = $cy;
+                      $image->Draw(stroke=>'purple',primitive=>'circle',
+                                   points=>"${cx},${cy} ${px},${py}",
+                                   fill=>'none',
+                                   strokewidth=>1);
+                      open(my $cache, ">", $cache_file) or warn "unable to open $cache_file";
+                      print $cache "$cx,$cy,25";
+                      close($cache);
+                      return ($cx, $cy, 25);
+                  }
+              }
+              $row_count = 0;
+          }
+      }
+
+
+    #+END_SRC
+*** crop_uber_screenshot_subroutine
+    #+NAME: crop_uber_screenshot_subroutine
+    #+BEGIN_SRC perl
+      sub crop_uber_screenshot {
+          my ( $image, $width, $top_left, $crop_height ) = @_;
+          my $crop_rect = "${width}x${crop_height}";
+          my $x = $image->Crop(geometry=>"${crop_rect}${top_left}");
+          warn "$x" if "$x";
+          $x = $image->Set( page=>'0x0+0+0' );
+	  warn "$x" if "$x";
+          $x = $image->Write("/tmp/debug.png");
+          warn "$x" if "$x";
+      }
+    #+END_SRC
+*** read_surge_subroutine file:/tmp/perl.pl
+    #+TBLNAME:TBL_ZOOM_2_RGB
+    | surge |   RED | GREEN |  BLUE |       Date |
+    |-------+-------+-------+-------+------------|
+    |   1.0 | 59881 | 58853 | 56540 | 2016-04-30 |
+    |   1.2 | 61166 | 53199 | 40349 | 1970-01-01 |
+    |   1.3 | 61166 | 50886 | 38293 | 1970-01-01 |
+    |   1.3 | 60909 | 51143 | 38550 | 2016-04-30 |
+    |   1.4 | 61166 | 48573 | 35980 | 1970-01-01 |
+    |   1.4 | 61166 | 48830 | 36237 | 2016-04-30 |
+    |   1.5 | 60909 | 47288 | 34181 | 1970-01-01 |
+    |   1.6 | 60909 | 44461 | 31868 | 1970-01-01 |
+    |   1.7 | 61166 | 41891 | 30069 | 1970-01-01 |
+    |   1.8 | 60395 | 40606 | 28270 | 1970-01-01 |
+    |   1.9 | 60652 | 37779 | 27242 | 1970-01-01 |
+    |   2.0 | 60909 | 34695 | 25700 | 1970-01-01 |
+    |   2.1 | 60395 | 33410 | 23901 | 1970-01-01 |
+    |   2.2 | 60395 | 30326 | 28873 | 1970-01-01 |
+    |   2.3 | 60138 | 29041 | 21588 | 1970-01-01 |
+    |   2.4 | 59881 | 25700 | 20303 | 1970-01-01 |
+    |   2.5 | 59881 | 24672 | 19275 | 1970-01-01 |
+    |   2.7 | 59624 | 20303 | 17219 | 1970-01-01 |
+    |   2.7 | 59624 | 20303 | 16962 | 2016-04-30 |
+
+    #+BEGIN_SRC perl :var table=TBL_ZOOM_2_RGB :results output
+      use strict;
+      my @rows = @{$table};
+      open(my $perl_file, ">", "/tmp/perl.pl") or die;
+      foreach my $row_array_ref ( @rows ) {
+          my $surge = $row_array_ref->[0];
+          my $red = $row_array_ref->[1];
+          my $green = $row_array_ref->[2];
+          my $blue = $row_array_ref->[3];
+          print $perl_file "[ $surge, $red, $green, $blue ],\n";
+      }
+    #+END_SRC
+
+    #+NAME: read_surge_subroutine
+    #+BEGIN_SRC perl
+      sub read_surge {
+          my ( $zoom, $red, $green, $blue ) = @_;
+          my $surge = -1;
+          # FOR ZOOM 2
+          if ( $zoom == 2 ) {
+              my @rgb = (
+	      [ 1.0, 59881, 58853, 56540 ],
+	      [ 1.2, 61166, 53199, 40349 ],
+	      [ 1.3, 61166, 50886, 38293 ],
+	      [ 1.3, 60909, 51143, 38550 ],
+	      [ 1.4, 61166, 48573, 35980 ],
+	      [ 1.4, 61166, 48830, 36237 ],
+	      [ 1.5, 60909, 47288, 34181 ],
+	      [ 1.6, 60909, 44461, 31868 ],
+	      [ 1.7, 61166, 41891, 30069 ],
+	      [ 1.8, 60395, 40606, 28270 ],
+	      [ 1.9, 60652, 37779, 27242 ],
+	      [ 2.0, 60909, 34695, 25700 ],
+	      [ 2.1, 60395, 33410, 23901 ],
+	      [ 2.2, 60395, 30326, 28873 ],
+	      [ 2.3, 60138, 29041, 21588 ],
+	      [ 2.4, 59881, 25700, 20303 ],
+	      [ 2.5, 59881, 24672, 19275 ],
+	      [ 2.7, 59624, 20303, 17219 ],
+	      [ 2.7, 59624, 20303, 16962 ],
+
+                  );
+              foreach my $aref ( @rgb ) {
+                  if ( $red == $aref->[1] && $green == $aref->[2] && $blue == $aref->[3] ) {
+                      $surge = $aref->[0];
+                      last;
+                  }
+              }
+              return $surge;
+          }
+      }
+    #+END_SRC
+*** get_pixel_values_and_draw_circle_subroutine
+    #+NAME: get_pixel_values_and_draw_circle_subroutine
+    #+BEGIN_SRC perl
+      sub get_pixel_values_and_draw_circle {
+          my ($image, $cell_x, $cell_y) = @_;
+          my ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$cell_x,$cell_y]");
+
+          my ($px, $py) = ( $cell_x+25, $cell_y );
+          $image->Draw(stroke=>'green',primitive=>'circle',
+                       points=>"${cell_x},${cell_y} ${px},${py}",
+                       fill=>'none',
+                       strokewidth=>1);
+          return( $red, $green, $blue);
+      }
+    #+END_SRC
+*** calibrate_subroutine
+    #+TBLNAME: Argument variables
+    | Variable                 | Note                                                       |
+    |--------------------------+------------------------------------------------------------|
+    | $image                   |                                                            |
+    | $bx                      |                                                            |
+    | $by                      |                                                            |
+    | $br                      |                                                            |
+    | $cell_x, $cell_y         | location of point to do color lookup                       |
+    |--------------------------+------------------------------------------------------------|
+    | $radii_down --> $degrees | 1 radian = 57.3 degrees                                    |
+    |                          | Polar coordinates: 0 to right                              |
+    |                          | 90 straight up, 180 to left                                |
+    |--------------------------+------------------------------------------------------------|
+    | $px                      | x-value of point on circle drawn around color lookup point |
+    | $py                      | y-value of point on circle drawn around color lookup point |
+    |                          |                                                            |
+    #+NAME: calibrate_subroutine
+    #+BEGIN_SRC perl
+      sub calibrate {
+          my ( $image, $bx, $by, $br, $cell_x, $cell_y ) = @_;
+          my $directory = '/srv/http/rideshare/calibrate';
+          my $html_file = "${directory}/index.html";
+          my $image_file = "${directory}/calibrate.png";
+          open ( my $out, ">", $html_file ) or die;
+
+          # draw a bulls eye around color lookup point
+          my $px = $cell_x+int($br/4);
+          my $py = $cell_y;
+          $image->Draw(stroke=>'purple',primitive=>'circle',
+                       points=>"${cell_x},${cell_y} ${px},${py}",
+                       fill=>'none',
+                       strokewidth=>1);
+
+          # Get color values
+          my ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$cell_x,$cell_y]");
+          my $text = "$red\n$green\n$blue";
+
+          # Crop area of interest for easier viewing
+          my $crop_rect = (6*$br) . "x" . (6*$br);
+          my $top_left = "+" . ($bx - int(3*$br)) . "+" . ($by - int(3*$br) + 0 );
+          print "r = $br, top left: $top_left, top crop_rect: $crop_rect\n";
+          my $x = $image->Crop(geometry=>"${crop_rect}${top_left}"); # e.g. $x = $image->Crop(geometry=>'100x100+100+100');
+          warn "$x" if "$x";
+          $x = $image->Set( page=>'0x0+0+0' );
+          warn "$x" if "$x";
+
+          # Write color values
+          $x = $image->Annotate(pointsize=>16, fill=>'green', text=>$text, x=>5, y=>10);
+          warn "$x" if "$x";          
+          $x = $image->Write($image_file);
+
+          # print $html_file "<img src=\"./${calibrate.png}\">";
+          system("gwenview --fullscreen $image_file &");
+          # system("chromium http://localhost/rideshare/calibrate &");
+          warn "$x" if "$x";
+      }
+    #+END_SRC
+** Command line options http://search.cpan.org/~jv/Getopt-Long/lib/Getopt/Long.pm
+   #+NAME: find-blue-dot-options
+   #+BEGIN_SRC perl
+     #### BEGIN GETOPTIONS BLOCK
+     use Getopt::Long;
+     my ($verbose, $help, $two_pi, $calibrate); #flags
+     my $surgeonly;
+
+     GetOptions ("zoom=i" => \$zoom,            # numeric
+                 "screenshot=s"   => \$screenshot, # string
+                 "verbose"  => \$verbose,       # flag
+                 "help"     => \$help,       # flag
+                 "surgeonly" => \$surgeonly,   # flag
+                 "two_pi" => \$two_pi,   # flag
+                 "calibrate" => \$calibrate )   # flag
+         or die("Error in command line arguments\n");
+     #### END GETOPTIONS BLOCK
+   #+END_SRC
+** find-blue-dot-configuration
+   #+NAME: find-blue-dot-configuration
+   #+BEGIN_SRC perl
+     # BEGIN CONFIGURATION BLOCK
+     use AppConfig;
+     my $config = AppConfig->new;
+     $config->define("screenshot=s");
+     $config->define("zoom=s");
+     $config->define("rad_x=s");
+     $config->define("rad_y=s");
+     $config->define("radii=s");
+     $config->define("degrees=s");
+     # read configuration file
+     $config->file("$Bin/conf/find-blue-dot.conf");
+     my $screenshot = $config->get("screenshot");
+     my $zoom = $config->get("zoom");
+     my $rad_x = $config->get("rad_x");
+     my $rad_y = $config->get("rad_y");
+     my $radii = $config->get("radii");
+     my $degrees = $config->get("degrees");
+     # END CONFIGURATION BLOCK
+   #+END_SRC
+** Configuration file file:./bin/conf/find-blue-dot.conf
+   #+BEGIN_SRC conf :tangle bin/conf/find-blue-dot.conf
+     screenshot=/home/troy/last.png
+     zoom=2
+     rad_x=-1
+     rad_y=0
+     # Santa Monica
+     radii=2.1
+     degrees=175
+   #+END_SRC    
+
+
+* rideshare file:./bin/rideshare file:~/rideshare/surge.txt
+  #+BEGIN_SRC perl :tangle bin/rideshare :shebang #!/usr/bin/env perl :noweb yes
+    <<pragma-block>>
+
+    use FindBin qw($Bin);
+    use File::Basename;
+    use lib "$Bin/lib";
+    require "rideshare.pm";
+    <<rideshare-configuration-chunk>>
+    <<rideshare-get-options-chunk>>
+
+    my $surge_old = -1; my $surge_new = -1;
+    open (my $surge_file, ">>", "/home/troy/rideshare/surge.txt");
+
+    help() if $help;
+
+    for (1..$iterations) {
+        print "to go: ", $iterations - $_ + 1, "." if $verbose;
+        my $date = localtime();
+        print " taking screenshot $date." if $verbose;
+        my $result = `screenshot --crop`;
+        $surge_new = `find-blue-dot --surgeonly`;
+        print " surge: $surge_new." if $verbose;
+        if ($surge_new != $surge_old) {
+            if ( $surge_old != -1 ) {
+                print $surge_file "$surge_new $date\n";
+            }
+            if ( ($surge_new > $surge_old) && ($surge_new > 1) ) {
+                system("gwenview --fullscreen ~/last.png 2>/dev/null &");
+            }
+            # if ( $surge_new < $surge_old ) {
+            #     system("gwenview --fullscreen ~/last.png 2>/dev/null &");
+            # }
+            $surge_old = $surge_new;
+        }
+        print " interval $sleep\n" if $verbose;
+        sleep(my $sleep_duration = $sleep-(time%3600)%$sleep);
+    }
+
+    <<rideshare_help_subroutine>>
+  #+END_SRC
+** rideshare subroutines
+*** help subroutine
+    #+NAME: rideshare_help_subroutine
+    #+BEGIN_SRC perl
+      sub help {
+          print <<END;
+          --help     print this help
+          --verbose
+          --iterations
+          --sleep
+
+          usage:
+      END
+      exit;
+      }
+    #+END_SRC
+** rideshare-configuration file:./bin/conf/rideshare.conf
+   #+NAME: rideshare-configuration-chunk
+   #+BEGIN_SRC perl
+     # BEGIN CONFIGURATION BLOCK
+     use AppConfig;
+     my $config = AppConfig->new;
+     $config->define("iterations=s");
+     $config->define("sleep=s");
+     # read configuration file
+     $config->file("$Bin/conf/rideshare.conf");
+     my $iterations = $config->get("iterations");
+     my $sleep = $config->get("sleep");
+     # END CONFIGURATION BLOCK
+   #+END_SRC
+*** Configuration file file:./bin/conf/rideshare.conf
+    #+BEGIN_SRC conf :tangle bin/conf/rideshare.conf
+      iterations=10
+      sleep=10
+    #+END_SRC    
+** rideshare command line options http://search.cpan.org/~jv/Getopt-Long/lib/Getopt/Long.pm
+      $config->define("iterations=s");
+      $config->define("sleep=s");
+   #+NAME: rideshare-get-options-chunk
+   #+BEGIN_SRC perl
+     #### BEGIN GETOPTIONS BLOCK
+     use Getopt::Long;
+     my $data   = "file.dat";
+     my $length = 24;
+     my ( $verbose, $help );
+     GetOptions ("iterations=i" => \$iterations,    # numeric
+                 "sleep=i"      => \$sleep,         # numeric
+                 "file=s"   => \$data,      # string
+                 "verbose"  => \$verbose,   # flag
+                 "help"     => \$help)   # flag
+         or die("Error in command line arguments\n");
+     #### END GETOPTIONS BLOCK
+   #+END_SRC
+** rideshare.pm
+   #+BEGIN_SRC perl :tangle ./bin/lib/rideshare.pm :padline no :noweb yes
+     use warnings;
+     use strict;
+     <<make-image-dir-subroutine>>
+     1;
+   #+END_SRC    
+*** The make_image_directory subroutine
+    #+name: make-image-dir-subroutine
+    #+BEGIN_SRC perl
+      sub make_image_dir {
+          use File::Path qw(make_path);
+          my ( $base_dir, $camera_name ) = @_;
+          my ( $year, $mon, $day, $hour, $min, $sec ) = foscam_localtime();
+          my $directory = "$base_dir/$year/$mon/$day/$camera_name/";
+          if ( ! -e $directory ) {
+              make_path($directory, { verbose => 1 }) or die "Unable to mkdir --parent $directory";
+          }
+          return $directory;
+      }
+    #+END_SRC    
+
+
+* screenshot file:./bin/screenshot file:./conf/screenshot.conf
+  #+BEGIN_SRC perl :tangle ./bin/screenshot :shebang #!/usr/bin/env perl :noweb yes
+    <<pragma-block>>
+    <<screenshot-path-block>>
+    <<screenshot-configuration-block>>
+    <<screenshot-command-line-options-block>>
+
+    my ( $image_filename )  = build_image_filename($label, $base_dir, 'png');
+    print "label: $label, base_dir: $base_dir\n" if $verbose;
+    print "image_filename: $image_filename\n" if $verbose;
+    system('adb shell screencap /sdcard/screen.png');
+    system('adb pull /sdcard/screen.png 2>/dev/null');
+    system("mv screen.png $image_filename");
+    unlink( '/home/troy/last.png' ) || die("unable to unlink");
+    symlink $image_filename, '/home/troy/last.png' || die("unable to symlink");
+    if ($crop) {
+        use Image::Magick;
+        my $image = Image::Magick->new;
+        my $x = $image->Read($image_filename);
+        warn "$x" if "$x";
+        $x = $image->Crop(geometry=>"$crop_geometry");
+        warn "$x" if "$x";
+        $x = $image->Set( page=>'0x0+0+0' );
+        warn "$x" if "$x";
+        $x = $image->Write($image_filename);
+        warn "$x" if "$x";
+    }
+
+    if ($annotate) {
+        use Image::Magick;
+        my $image = Image::Magick->new;
+        my $x = $image->Read($image_filename);
+        warn "$x" if "$x";
+	# $x = $image->Annotate(pointsize=>16, fill=>'green', text=>$text, x=>5, y=>10);
+        $x = $image->Annotate(pointsize=>32, fill=>'green', text=>$image_filename, x=>16, y=>32);
+        $x = $image->Write($image_filename);
+        warn "$x" if "$x";
+        }
+    if ($gwenview) {
+      system("gwenview --fullscreen $image_filename &");
+    }
+  #+END_SRC  
+** file:./lib/screenshot.pm
+   #+BEGIN_SRC perl :tangle ./lib/screenshot.pm
+     use warnings;
+     use strict;
+
+     sub build_image_filename {
+         my ( $label, $base_dir, $type ) = @_;
+         my $directory = make_image_dir( $base_dir );
+         my ($year, $mon, $day, $hour, $min, $sec) = formatted_localtime();
+         if ( length($label) > 1 ) {
+           $label = $label . ".";
+         } else {
+             $label = "";
+         }
+         my $file = "$directory/${year}${mon}${day}-${hour}${min}${sec}.${label}${type}";
+         return ($file);
+     }
+
+     sub make_image_dir {
+         use File::Path qw(make_path);
+         my ( $base_dir ) = @_;
+         my ( $year, $mon, $day, $hour, $min, $sec ) = formatted_localtime();
+         my $directory = "$base_dir/${year}${mon}${day}";
+         if ( ! -e $directory ) {
+             make_path($directory, { verbose => 1 }) or die "Unable to mkdir --parent $directory";
+         }
+         return $directory;
+     }
+
+     sub formatted_localtime {
+         my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+             localtime(time);
+         $year -= 100;
+         $mon += 1;
+         $mon  = sprintf("%02d", $mon);
+         $mday = sprintf("%02d", $mday);
+         $hour = sprintf("%02d", $hour);
+         $min = sprintf("%02d", $min);
+         $sec = sprintf("%02d", $sec);
+
+         # my $formatted_time = "${year}${mon}${mday}.${hour}${min}${sec}";
+         # return($formatted_time);
+    
+         return ( $year, $mon, $mday, $hour, $min, $sec );
+     }
+
+
+     1;
+     __END__
+         use warnings;
+         use strict;
+         sub get_video {
+             my ( $url, $destination, $duration ) = @_;
+             eval {
+                 local $SIG{ALRM} = sub {die "alarm\n"};
+                 alarm $duration;
+                 my $return = getstore($url,$destination);
+                 alarm 0;
+             };
+         }
+         sub make_image_dir {
+             use File::Path qw(make_path);
+             my ( $base_dir, $camera_name ) = @_;
+             my ( $year, $mon, $day, $hour, $min, $sec ) = foscam_localtime();
+             my $directory = "$base_dir/$year/$mon/$day/$camera_name/";
+             if ( ! -e $directory ) {
+                 make_path($directory, { verbose => 1 }) or die "Unable to mkdir --parent $directory";
+             }
+             return $directory;
+         }
+           sub build_image_filename {
+               my ( $camera_name, $base_dir, $type ) = @_;
+               my $directory = make_image_dir( $base_dir, $camera_name );
+               my $formatted_time = formatted_localtime();
+               my $file = "$directory/${formatted_time}.$type";
+         #      my $text = "$days[$wday] $hour:$min:$sec";
+               my ($year,$mon,$day,$hour,$min,$sec,$week_day) = foscam_localtime();
+               my $text = "$hour:$min:$sec";
+               print "DEBUG: $text\n";
+               return ($file, $text);
+           }
+           sub build_video_filename {
+               my ( $camera_name, $base_dir, $type ) = @_;
+               my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+                   localtime(time);
+               $year -= 100;
+               $mon += 1;
+               $mon  = sprintf("%02d", $mon);
+               $mday  = sprintf("%02d", $mday);
+               $hour = sprintf("%02d", $hour);
+               $min  = sprintf("%02d", $min);
+               $sec  = sprintf("%02d", $sec);
+
+         #      my $directory = make_image_dir( $base_dir, $year, $mon, $mday, $camera_name, $hour );
+               my $directory = make_image_dir( $base_dir, $camera_name , $hour );
+
+               my $file = "$directory/${year}${mon}${mday}.${hour}${min}${sec}.$camera_name.$type";
+
+               return ($file);
+           }
+         sub sleep_until_interval {
+             my $repeat_interval = shift;
+             my $sleep_until_interval = 0;
+             my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+                 localtime(time);
+             $year -= 100;
+             $mon += 1;
+
+             my $seconds_past_hour = $min * 60 + $sec;
+             print "$seconds_past_hour seconds past hour.";
+             my $modulus = $seconds_past_hour%($repeat_interval);
+             print " modulus of $seconds_past_hour and $repeat_interval is $modulus.";
+             $sleep_until_interval = $repeat_interval - $modulus;
+             print " $repeat_interval - $modulus = $sleep_until_interval\n";
+
+             return $sleep_until_interval;
+         }
+
+         sub foscam_localtime {
+             my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+                 localtime(time);
+             $year -= 100;
+             $mon += 1;
+             $mon  = sprintf("%02d", $mon);
+             $mday = sprintf("%02d", $mday);
+             $hour = sprintf("%02d", $hour);
+             $min  = sprintf("%02d", $min);
+             $sec  = sprintf("%02d", $sec);
+
+             return($year,$mon,$mday,$hour,$min,$sec,'Mon');
+         }
+         sub formatted_localtime {
+             my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) =
+                 localtime(time);
+             $year -= 100;
+             $mon += 1;
+             $mon  = sprintf("%02d", $mon);
+             $mday = sprintf("%02d", $mday);
+             $hour = sprintf("%02d", $hour);
+             $min = sprintf("%02d", $min);
+             $sec = sprintf("%02d", $sec);
+
+             my $formatted_time = "${year}${mon}${mday}.${hour}${min}${sec}";
+             return($formatted_time);
+         }
+         sub get_active_cameras {
+             my $User_Preferences = shift;
+             my @cameras;
+             if ($User_Preferences->{'CAM1_STATUS'} eq 'active') {
+                 push @cameras, {
+                     name => $User_Preferences->{'CAM1_NAME'},
+                     description => $User_Preferences->{'CAM1_DESCRIPTION'},
+                     ip_address => $User_Preferences->{'CAM1_IP_ADDRESS'},
+                     user => $User_Preferences->{'CAM1_USER'},
+                     password => $User_Preferences->{'CAM1_PASSWORD'}
+                 };
+             }
+             if ($User_Preferences->{'CAM2_STATUS'} eq 'active') {
+                 push @cameras, {
+                     name => $User_Preferences->{'CAM2_NAME'},
+                     description => $User_Preferences->{'CAM2_DESCRIPTION'},
+                     ip_address => $User_Preferences->{'CAM2_IP_ADDRESS'},
+                     user => $User_Preferences->{'CAM2_USER'},
+                     password => $User_Preferences->{'CAM2_PASSWORD'}
+                 };
+             }
+             if ($User_Preferences->{'CAM3_STATUS'} eq 'active') {
+                 push @cameras, {
+                     name => $User_Preferences->{'CAM3_NAME'},
+                     description => $User_Preferences->{'CAM3_DESCRIPTION'},
+                     ip_address => $User_Preferences->{'CAM3_IP_ADDRESS'},
+                     user => $User_Preferences->{'CAM3_USER'},
+                     password => $User_Preferences->{'CAM3_PASSWORD'}
+                 };
+             }
+             if ($User_Preferences->{'CAM4_STATUS'} eq 'active') {
+                 push @cameras, {
+                     name => $User_Preferences->{'CAM4_NAME'},
+                     description => $User_Preferences->{'CAM4_DESCRIPTION'},
+                     ip_address => $User_Preferences->{'CAM4_IP_ADDRESS'},
+                     user => $User_Preferences->{'CAM4_USER'},
+                     password => $User_Preferences->{'CAM4_PASSWORD'}
+                 };
+             }
+             return \@cameras;
+         }
+   #+END_SRC
+** <<screenshot-configuration-block>>
+   #+NAME: screenshot-configuration-block
+   #+BEGIN_SRC perl
+     # BEGIN CONFIGURATION BLOCK
+     use AppConfig;
+     my $config = AppConfig->new;
+     $config->define("base_dir=s");
+     $config->define("label=s");
+     $config->define("crop_geometry=s");
+     # read configuration file
+     $config->file("$Bin/../conf/screenshot.conf");
+     my $base_dir = $config->get("base_dir");
+     my $label = $config->get("label");
+     my $crop_geometry = $config->get("crop_geometry");
+     # END CONFIGURATION BLOCK
+   #+END_SRC
+** <<screenshot-command-line-options-block>>
+   #+NAME: screenshot-command-line-options-block
+   #+BEGIN_SRC perl
+     #### BEGIN GETOPTIONS BLOCK
+     use Getopt::Long;
+     my ($verbose, $help, $gwenview, $crop, $annotate);
+     GetOptions ("label=s"   => \$label, # string
+                 "gwenview"  => \$gwenview,      # flag
+                 "help"      => \$help,          # flag
+                 "annotate"   => \$annotate,       # flag
+                 "verbose"   => \$verbose,       # flag
+                 "crop"      => \$crop)         # flag
+         or die("Error in command line arguments\n");
+     #### END GETOPTIONS BLOCK
+     #+END_SRC
+** <<screenshot-path-block>>
+   #+NAME: screenshot-path-block
+   #+BEGIN_SRC perl
+     use FindBin qw($Bin);
+     use File::Basename;
+     use lib "$Bin/../lib";
+     require "screenshot.pm";
+   #+END_SRC
+    use FindBin qw($Bin);
+    use File::Basename;
+    use lib "$Bin/lib";
+    require "find-blue-dot.pm";
+** file:./conf/screenshot.conf
+   #+BEGIN_SRC conf :tangle ./conf/screenshot.conf
+     # base_dir='/home/troy/rideshare/images'
+     base_dir='/tmp/images'
+     label='/'
+     crop_geometry='1440x1650+0+336'
+   #+END_SRC
+
+
+* readsurge.pl
+  #+BEGIN_SRC perl :tangle ./readsurge.pl :shebang #!/usr/bin/env perl
+    use warnings;
+    use strict;
+    my $snapshot = $ARGV[0] or die "Please supply a filename";
+    use Image::Magick;
+    my ($image, $screenshot, $height, $width);
+    my ($red, $green, $blue, $opacity) = (0,0,0,0);
+    $image = Image::Magick->new;
+    $screenshot = $image->Read($snapshot);
+    $height = $image->Get('height');
+    $width = $image->Get('width');
+
+    my $linear_x = 256;
+    my $x1 = int($width/2  - $linear_x/2 + 0);
+    my $y1 = int($height/2 - $linear_x/2 - $linear_x/2 );
+    my $w = int($width/8);
+    $w = $linear_x;
+    my $l = $linear_x;
+
+    print "[$w wide, $l tall, $x1, $y1]\n";
+
+    my $x = $image->Crop(geometry=>"${w}x${l}+${x1}+${y1}");
+
+    $height = $image->Get('height');
+    $width = $image->Get('width');
+
+    ($red, $green, $blue) = get_point(234,367);
+    print "$red, $green, $blue\n";
+    warn "$x" if "$x";
+
+    # $x = $image->Draw(stroke=>'black', primitive=>'rectangle', points=>'20,20 200,200');
+    # $image->Draw(stroke=>'white',primitive=>'circle',points=>'49.5,49.5 10,49.5');
+    # $image->Draw(stroke=>'purple',primitive=>'circle',points=>'234,367 234,400',fill=>'none', strokewidth=>2);
+    # $image->Draw(stroke=>'purple',primitive=>'circle',points=>"128,128 138,138",fill=>'none', strokewidth=>2);
+
+    my $p1 = $linear_x/2 . ',' . $linear_x/2;
+    my $foo = $linear_x/2 + 5;
+    my $p2 = $linear_x/2 . ',' . $foo;
+    $image->Draw(stroke=>'purple',primitive=>'circle',points=>"${p1} ${p2}",fill=>'none', strokewidth=>2);
+
+    $x = $image->Write("/tmp/uber.png");
+    $x = $image->Write("/tmp/uber/$red.$green.$blue");
+    warn "$x" if "$x";
+
+    exit;
+
+    for (0..$height-1) {
+        ($red, $green, $blue) = get_point(int($width/2),$_);
+        # ($red, $green, $blue) = get_point(731,1060);
+
+        if ( $red == 59881 && $green == 58853 && $blue == 56540) {
+            print "0";
+        } elsif ( $red == 61166 && $green == 53199 && $blue == 40349 ) {
+            print "1.2";
+        } elsif ( $red == 61166 && $green == 50886 && $blue == 38293 ) {
+            print "1.3";
+        } elsif ( $red == 61166 && $green == 48573 && $blue == 35980 ) {
+            print "1.4";
+        } elsif ( $red == 60909 && $green == 47288 && $blue == 34181 ) {
+            print "1.5";
+        } elsif ( $red == 60909 && $green == 44461 && $blue == 31868 ) {
+            print "1.6";
+        } elsif ( $red == 61166 && $green == 41891 && $blue == 30069 ) {
+            print "1.7";
+        } elsif ( $red == 60395 && $blue == 0 ) {
+            print "1.8";
+        } elsif ( $red == 60652 && $green == 37779 && $blue == 27242 ) {
+            print "1.9";
+        } elsif ( $red == 60909 && $green == 34695 && $blue == 25700 ) {
+            print "2.0";
+        } elsif ( $red == 60395 && $green == 33410 && $blue == 23901 ) {
+            print "2.1";
+        } elsif ( $red == 60395 && $green == 30326 && $blue == 22873 ) {
+            print "2.2";
+        } elsif ( $red == 60138 && $green == 29041 && $blue == 21588 ) {
+            print "2.3";
+        } elsif ( $red == 59881 && $green == 25700 && $blue == 20303 ) {
+            print "2.6";
+        } else {
+            print "1000";
+        }
+	print "\n";
+    }
+    $image->DESTROY();
+
+    sub get_point {
+        my ($x,$y) = @_;
+        my ($red, $green, $blue, $opacity) = (0,0,0,0);
+        ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$x,$y]");
+        return ($red, $green, $blue);
+    }
+
+    sub find_location {
+
+        my $x = 0;
+        my $y = 0;
+        my $match = 0;
+        my $line_sum = 0;
+        for ( 0..$height-1 )  {
+            $match = 0;
+            $line_sum = 0;
+            $y = $_;
+            for ( 0..$width-1 )  {
+                $x = $_;
+                ($red, $green, $blue, $opacity) = (0,0,0,0);
+                ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$x,$y]");
+                if ($red==16962 && $green==34181 && $blue==62708) {
+                    $line_sum+=1;
+                    if ( $match == 0 ) {
+                        $match = 1;
+                        print "$y:";
+                    }
+                }
+            }
+            if ( $match == 1 ) {
+                print "$line_sum\n";
+            }
+        }
+    }
+
+  #+END_SRC
+  
+* monitor-surge.pl
+  #+BEGIN_SRC perl :tangle monitor-surge.pl :shebang #!/usr/bin/env perl
+    use warnings;
+    use strict;
+    my $sleep = 0;
+    my $loop = 60;
+
+    my $surge_old = 0;
+    my $surge_new = 0;
+
+    print "monitoring ...";
+
+    open( my $monitor_log_file, ">>", "/home/troy/rideshare/monitor.log") or die;
+    print $monitor_log_file "start monitoring at ", `date`;
+
+    # while (1) {
+    for (1..$loop) {
+        my $snapshot = `screenshot '/'`;
+        print "==>$snapshot<==\n";
+        print "r", $loop - $_, "\n";
+	$surge_old = $surge_new;
+        $surge_new = `readsurge.pl $snapshot`;
+        print "$surge_new\n";
+        if ( $surge_new == 0 ) {
+            print "unlink $snapshot\n";
+            unlink $snapshot;
+        }
+        if ( $surge_new > $surge_old ) {
+            system("smplayer /home/troy/rideshare/music/track01.mp3 &");
+        }
+        sleep $sleep;
+    }
+    system("smplayer /home/troy/rideshare/music/dixie.mp3 &");
+  #+END_SRC
+* monitor.pl
+  #+BEGIN_SRC perl :tangle monitor.pl :shebang #!/usr/bin/env perl
+    use warnings;
+    use strict;
+    my $sleep = 0;
+    my $loop = 1000;
+
+    print "monitoring ...";
+
+    open( my $monitor_log_file, ">>", "/home/troy/rideshare/monitor.log") or die;
+    print $monitor_log_file "start monitoring at ", `date`;
+
+    # while (1) {
+    for (1..$loop) {
+        system("screenshot '/'");
+        print $loop - $_, "\n";
+        sleep $sleep;
+    }
+    system("smplayer /home/troy/rideshare/music/dixie.mp3");
+  #+END_SRC
+* readsurge-loop.pl
+  #+BEGIN_SRC perl :tangle ./readsurge-loop.pl :shebang #!/usr/bin/env perl
+    use warnings;
+    use strict;
+
+    my $surge_old = 0;
+    my $surge_new = 0;
+
+    open( my $surge_logfile, ">>", "/home/troy/rideshare/surge.log") or die;
+
+    my @snapshots = <*.png>;
+    foreach my $snapshot (@snapshots) {
+        $surge_old = $surge_new;
+	my $surge_new = `readsurge.pl $snapshot`;
+	print "$surge_new\n";
+	unlink $snapshot if $surge_new == 0;
+
+	        $surge_old = $surge_new;
+	my $surge_new = `readsurge.pl $snapshot`;
+	print "$surge_new\n";
+	unlink $snapshot if $surge_new == 0;
+	
+        # $surge_new = `screenshot '/'`;
+                    # if ( $surge_new > 0 ) {
+                    #     if ( $surge_new > $surge_old ) {
+                    #         print $surge_logfile "$surge_new > $surge_old at ", `date`;
+                    #         system("smplayer /home/troy/music/dixie.mp3");
+                    #     } elsif ( $surge_new < $surge_old ) {
+                    #         print $surge_logfile "$surge_new < $surge_old at ", `date`;
+                    #     }
+                    # }
+
+                    # if ( $surge_new == 0 ) {
+                    #     print $surge_logfile "0", `date` if $surge_new < $surge_old;
+                    # }
+
+    }
+
+	
+	
+        # $surge_new = `screenshot '/'`;
+                    # if ( $surge_new > 0 ) {
+                    #     if ( $surge_new > $surge_old ) {
+                    #         print $surge_logfile "$surge_new > $surge_old at ", `date`;
+                    #         system("smplayer /home/troy/music/dixie.mp3");
+                    #     } elsif ( $surge_new < $surge_old ) {
+                    #         print $surge_logfile "$surge_new < $surge_old at ", `date`;
+                    #     }
+                    # }
+
+                    # if ( $surge_new == 0 ) {
+                    #     print $surge_logfile "0", `date` if $surge_new < $surge_old;
+                    # }
+
+    }
+  #+END_SRC
+* PerlMagick http://www.google.com
+** Colors
+   |       |   H |   S |   V |   R |   G |   B |     R |     G |     B |
+   |-------+-----+-----+-----+-----+-----+-----+-------+-------+-------|
+   | Dot   | 217 | 186 | 244 |  66 | 133 | 244 | 16962 | 34181 | 62708 |
+   | Beige |  31 |  18 | 239 | 239 | 231 | 222 |       |       |       |
+   |-------+-----+-----+-----+-----+-----+-----+-------+-------+-------|
+   |       |     |     |     |     |     |     |       |       |       |
+   #+TBLFM: $5=66*256
+** Google: PerlMagick read RGB of a pixel
+   + https://www.experts-exchange.com/questions/20582416/How-can-I-use-PERL-to-get-pixel-by-pixel-data-rgb-of-a-bmp-tiff-jpeg-or-any-other-common-image-file.html
+     #+BEGIN_SRC perl
+       ($red, $green, $blue, $opacity) = split /,/, $im->Get("pixel[$x,$y]");
+     #+END_SRC
+   + http://seejohncode.com/2012/01/10/imagemagick-listing-rgb-pixels/
+** Test file:./temp.pl
+   #+BEGIN_SRC perl :tangle ./temp.pl :shebang #!/usr/bin/env perl
+     use warnings;
+     use strict;
+
+     # my $file = $ARGV[0] or die "Please supply a filename";
+     my @images = <*.png>;
+
+     use Image::Magick;
+     my ($image, $screenshot);
+     my ($red, $green, $blue, $opacity) = (0,0,0,0);
+
+     foreach my $image (@images) {
+
+         $image = Image::Magick->new;
+         $screenshot = $image->Read($file);
+         my $height = $image->Get('height');
+         my $width = $image->Get('width');
+
+     # print "h:$height, w:$width\n";
+
+         ($red, $green, $blue) = get_point(592,1188);
+         if ( $red == 59881 ) {
+             # print "0 at ", " ($red, $green, $blue) ", `date`;
+             print ".";
+         } elsif ( $red == 61166 ) {
+             print "\n1.2X at ", " ($red, $green, $blue) ", `date`;
+         } elsif ( $red == 60909 ) {
+             print "\n1.5X at ", " ($red, $green, $blue) ", `date`;
+         } else {
+             system("gwenview $file 2>/dev/null &");
+             print "\nUnknown: $red, $green, $blue\n";
+             print `cal`;
+         }
+         $image->DESTROY();
+     }
+     sub get_point {
+       my ($x,$y) = @_;
+       my ($red, $green, $blue, $opacity) = (0,0,0,0);
+       ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$x,$y]");
+       return ($red, $green, $blue);
+     }
+
+     sub find_location {
+
+         my $x = 0;
+         my $y = 0;
+         my $match = 0;
+         my $line_sum = 0;
+         for ( 0..$height-1 )  {
+             $match = 0;
+             $line_sum = 0;
+             $y = $_;
+             for ( 0..$width-1 )  {
+                 $x = $_;
+                 ($red, $green, $blue, $opacity) = (0,0,0,0);
+                 ($red, $green, $blue, $opacity) = split /,/, $image->Get("pixel[$x,$y]");
+                 if ($red==16962 && $green==34181 && $blue==62708) {
+                     $line_sum+=1;
+                     if ( $match == 0 ) {
+                         $match = 1;
+                         print "$y:";
+                     }
+                 }
+             }
+             if ( $match == 1 ) {
+                 print "$line_sum\n";
+             }
+         }
+     }
+   #+END_SRC
+
+   #+RESULTS:
+   : Exception 435: unable to open image `uber.png': No such file or directory @ error/blob.c/OpenBlob/2702
+* Variables
+| Variable  | Description                | program       |
+|-----------+----------------------------+---------------|
+| $base_dir | rideshare images directory | screenshot |
+|           |                            |               |
+** Renaming notes
+* Tangle rideshare-menu.pl
+  #+BEGIN_SRC perl :tangle ./rideshare-menu.pl :shebang #!/usr/bin/env perl
+    use warnings;
+    use strict;
+
+    use Term::ReadKey;
+    my $gps_location_app = './gpslocation.pl';
+    my $logfile = '/home/troy/rideshare/log/160421.log';
+    my $key = '';
+    my $event = '';
+    my $clear = `clear`;
+    my $menu = menu();
+
+    ReadMode 4; # Turn off controls keys
+    while ( $key ne 'q' ) {
+        while (not defined ($key = ReadKey(-1))) {
+            sleep 1;
+            print $clear;
+            print `date`;
+            print $menu;
+        }
+
+        if ( $key eq '1' ) {
+            $event = "Receive Ping";
+        } elsif ( $key eq '2' ) {
+            $event = "Ignore Ping";
+        } elsif ( $key eq '3' ) {
+            $event = "Accept Ping";
+        }
+
+        last if ( $key eq 'q' );
+        log_event($event);
+    }
+    print "Get key $key\n";
+    print "Event $event\n";
+    ReadMode 0; # Reset tty mode before exiting
+
+    sub log_event {
+       my $event = shift;
+
+       if ( $event eq "Receive Ping" ) {
+           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
+           print "==> $command\n";
+           system($command);
+	   system('./screenshot receive_ping');
+       } elsif ( $event eq "Ignore Ping" ) {
+           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
+           print "==> $command\n";
+           system($command);
+       } elsif ( $event eq "Accept Ping" ) {
+           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
+           print "==> $command\n";
+           system($command);
+       }
+
+    }
+
+    sub menu {
+
+        my $menu = <<"END";
+        --------------
+        1. Receive Ping
+        2. Ignore Ping
+        3. Accept Ping
+
+        4. Arrive Vicinity
+        5. Manuvering
+
+        6. Start Trip
+        7. End Trip
+
+        8. Waypoint
+        9. Open log.org
+    END
+        return $menu;
+    }
+  #+END_SRC
+* log.pl
+  #+BEGIN_SRC perl
+    #!/usr/bin/env perl
+    use warnings;
+    use strict;
+
+    my $event = "";
+    print `clear`;
+    menu("BEGIN");
+
+    while(1) {
+        chomp(my $input = <STDIN>);
+        if ( $input == 1 ) {
+            $event = "Accept Ping";
+        } elsif ( $input == 2 ) {
+            $event = "Arrive";
+        } elsif ( $input == 3 ) {
+            $event = "Start Trip";
+        } elsif ( $input == 4 ) {
+            $event = "End Trip";
+        } elsif ( $input == 5 ) {
+            $event = "Waypoint";
+        } elsif ( $input == 6 ) {
+            $event = 'read_log';
+            system('emacs ./log.org');
+        }
+
+        run_command($event) unless $event eq 'read_log';
+        menu($event);
+    }
+
+    sub run_command {
+        my $event = shift;
+        my $command = "$gps_location_app '" . ${event} . "' >> log.org";
+        print "==> $command\n";
+        system($command);
+    }
+
+    sub menu {
+        my $event = shift;
+        print `clear`;
+        chomp(my $date = `date`);
+        print <<"END";
+        [$event] $date
+        --------------
+        1. Accept Ping
+        2. Arrive
+        3. Start Trip
+        4. End Trip
+        5. Waypoint
+        6. Open log.org
+    END
+    
+    }
+
+  #+END_SRC
+* <<pragma-block>> (http://perldoc.perl.org/perlpragma.html)
+  #+NAME: pragma-block
+  #+BEGIN_SRC perl
+    use warnings;
+    use strict;
+  #+END_SRC
+* tmp
+  #+BEGIN_SRC perl :tangle /tmp/string :shebang #!/usr/bin/env perl
+    print 3 . 4, "\n"; # 34
+    print 3 . (4), "\n"; # 34
+    print 3 . 4 . 1+2, "\n"; # 343
+    print 3 . 4 . 1+2 . 5+6, "\n"; # 3441
+    print 3 . 4 . (1+2) . 5+6, "\n"; #3441
+    print 3 . 4 . (1+2) . (5+6), "\n"; #34311
+  #+END_SRC
+
+  #+RESULTS:
+  : 1
+

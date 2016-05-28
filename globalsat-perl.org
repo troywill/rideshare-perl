@@ -1,0 +1,174 @@
+* Dependencies
+  | perl-dbd-pg          |   |
+  | postgresql           |   |
+  | perl-appconfig       |   |
+  | perl-io-socket-inet6 |   |
+  | perl-json            |   |
+
+* HTTP
+  1. http://search.cpan.org/~makamaka/JSON-2.90/lib/JSON.pm#decode_json
+  2. http://www.catb.org/gpsd/gpsd_json.html
+* [[file:./bin/globalsat-perl.pl][globalsat-perl.pl]]
+* Connecting to gpsd socket
+  #+NAME: connect-to-gpsd-socket
+  #+BEGIN_SRC perl
+    my $gpsd_socket = new IO::Socket::INET6 (
+        PeerAddr => 'localhost',
+        PeerPort => '2947',
+        Proto => 'tcp',
+        Blocking => 1
+        ) or die "Could not create socket: $!\n";
+
+    $gpsd_socket->send('?WATCH={"enable":true,"json":true}');
+  #+END_SRC
+* loop-block
+  #+NAME: loop-block
+  #+BEGIN_SRC perl
+    while ( my $json_line = <$gpsd_socket> ) {
+
+      my $hashref = decode_json($json_line);
+      my %hash = %$hashref;
+
+      my $class = $hash{'class'};
+
+      if ( $class eq 'TPV' ) {
+          my ($mode,$time,$ept,$lat,$lon,$alt,$epx,$epy,$epv,$track,$speed,$climb,$epd,$eps,$epc) =
+              @hash{'mode','time','ept','lat','lon','alt','epx','epy','epv','track','speed','climb','epd','eps','epc'};
+          print "time: $time\nept: $ept\nlat: $lat\nlon: $lon\nalt: $alt\nepx: $epx\nepy: $epy\nepv: $epv\ntrack: $track\nspeed: $speed\nclimb: $climb\nepd: $epd\neps: $eps\nepc: $epc\n";
+      }
+    }
+  #+END_SRC
+* MAIN PROGRAM [[file:./bin/globalsat-perl.pl][globalsat-perl.pl]]
+  #+BEGIN_SRC perl :tangle bin/globalsat-perl.pl :shebang #!/usr/bin/env perl :noweb yes
+    <<globalsat-perl-pragma-block>>
+    <<globalsat-perl-path-block>>
+    <<globalsat-perl-configuration-block>>
+    <<globalsat-perl-get-options-block>>
+    <<connect-to-gpsd-socket>>
+    <<loop-block>>
+  #+END_SRC
+** help_subroutine
+   #+NAME: help_subroutine
+   #+BEGIN_SRC perl
+     sub help {
+         print <<END;
+         --calibrate
+	 --two_pi
+	 --surgeonly
+	 --verbose
+	 --zoom
+     END
+         exit;
+     }
+   #+END_SRC
+
+** globalsat-perl pragma-block
+   + See http://perldoc.perl.org/perlpragma.html
+   #+NAME: globalsat-perl-pragma-block
+   #+BEGIN_SRC perl
+     use warnings;
+     use strict;
+     use IO::Socket::INET6;
+     use JSON;
+   #+END_SRC
+** globalsat-perl path-block
+   #+NAME: globalsat-perl-path-block
+   #+BEGIN_SRC perl
+     ###### path-block ############
+     use FindBin qw($Bin);        #
+     use File::Basename;          #
+     use lib "$Bin/../lib";       #
+     require "globalsat-perl.pm"; #
+     ##############################
+   #+END_SRC
+** globalsat-perl configuration-block
+   #+NAME: globalsat-perl-configuration-block
+   #+BEGIN_SRC perl
+     ###### begin configuration-block ########### 
+     use AppConfig;                               
+                                                  
+     # create a new AppConfig object              
+     my $config = AppConfig->new;                 
+                                                  
+     # define a new variable                      
+     # $config->define('LOCAL_DATABASE=s');       
+     $config->define("VAR1=s");                   
+                                                  
+     # read configuration file                    
+                                                  
+     print "$Bin <==\n";                          
+     $config->file("$Bin/../conf/globalsat-perl.conf");            
+                                                  
+     my $VAR1 = $config->get("VAR1");             
+                                                  
+     print "VAR1 = $VAR1\n";                      
+     ############ end configuration-block ####### 
+   #+END_SRC					 
+*** Configuration file
+    #+BEGIN_SRC conf :tangle ./conf/globalsat-perl.conf
+      VAR1=3.14
+    #+END_SRC    
+*** [[http://search.cpan.org/~abw/AppConfig/][AppConfig]] by [[http://search.cpan.org/~abw/][Andy Wardley]]
+** globalsat-perl command-line-options-block
+   #+NAME: globalsat-perl-configuration-block
+   #+BEGIN_SRC perl
+     #### BEGIN GETOPTIONS BLOCK
+     use Getopt::Long;
+     my ($verbose, $help, $calibrate); #flags
+     my $zoom;
+     my $screenshot;
+     
+     GetOptions ("zoom=i" => \$zoom,            # numeric
+                 "screenshot=s"   => \$screenshot, # string
+                 "verbose"  => \$verbose,       # flag
+                 "help"     => \$help )       # flag
+         or die("Error in command line arguments\n");
+     #### END GETOPTIONS BLOCK
+   #+END_SRC
+
+** globalsat-perl database-block
+   #+NAME: globalsat-perl-configuration-block
+   #+BEGIN_SRC perl
+     
+   #+END_SRC
+   
+   
+* globalsat-perl Library (globalsat-perl.pm)
+** globalsat-perl.pm
+   #+BEGIN_SRC perl :tangle ./lib/globalsat-perl.pm :padline no :noweb yes
+     use warnings;
+     use strict;
+     <<make-image-dir-subroutine>>
+     <<second-subroutine>>
+     <<third-subroutine>>
+     1;
+   #+END_SRC    
+*** make-image_dir-subroutine
+    #+name: make-image-dir-subroutine
+    #+BEGIN_SRC perl
+      sub make_image_dir {
+          use File::Path qw(make_path);
+          my ( $base_dir, $camera_name ) = @_;
+          my ( $year, $mon, $day, $hour, $min, $sec ) = foscam_localtime();
+          my $directory = "$base_dir/$year/$mon/$day/$camera_name/";
+          if ( ! -e $directory ) {
+              make_path($directory, { verbose => 1 }) or die "Unable to mkdir --parent $directory";
+          }
+          return $directory;
+      }
+    #+END_SRC    
+*** globalsat-perl-second_subroutine
+*** globalsat-perl-third-subroutine
+
+
+* Testing => http://www.perl.org/about/whitepapers/perl-testing.html
+* Step By Step
+  1. [4/4] Preliminary Setup
+     1. [X] Specify application name
+	#+NAME: globalsat-perl
+	#+BEGIN_SRC conf
+	  globalsat-perl
+	#+END_SRC
+     2. [X] copy this Org file to ~/path/to/app file:./tmp/copy
+     3. [X] Specify application directory, e.g., /home/troy/myapp
+     4. [X] Create the application directory if it doesn't already exist file:./tmp/make_app_dir.sh
