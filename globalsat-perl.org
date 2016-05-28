@@ -132,7 +132,6 @@
      
    #+END_SRC
    
-   
 * globalsat-perl Library (globalsat-perl.pm)
 ** globalsat-perl.pm
    #+BEGIN_SRC perl :tangle ./lib/globalsat-perl.pm :padline no :noweb yes
