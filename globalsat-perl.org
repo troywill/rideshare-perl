@@ -1,45 +1,5 @@
-* Dependencies
-  | perl-dbd-pg          |   |
-  | postgresql           |   |
-  | perl-appconfig       |   |
-  | perl-io-socket-inet6 |   |
-  | perl-json            |   |
-
-* HTTP
-  1. http://search.cpan.org/~makamaka/JSON-2.90/lib/JSON.pm#decode_json
-  2. http://www.catb.org/gpsd/gpsd_json.html
-* [[file:./bin/globalsat-perl.pl][globalsat-perl.pl]]
-* Connecting to gpsd socket
-  #+NAME: connect-to-gpsd-socket
-  #+BEGIN_SRC perl
-    my $gpsd_socket = new IO::Socket::INET6 (
-        PeerAddr => 'localhost',
-        PeerPort => '2947',
-        Proto => 'tcp',
-        Blocking => 1
-        ) or die "Could not create socket: $!\n";
-
-    $gpsd_socket->send('?WATCH={"enable":true,"json":true}');
-  #+END_SRC
-* loop-block
-  #+NAME: loop-block
-  #+BEGIN_SRC perl
-    while ( my $json_line = <$gpsd_socket> ) {
-
-      my $hashref = decode_json($json_line);
-      my %hash = %$hashref;
-
-      my $class = $hash{'class'};
-
-      if ( $class eq 'TPV' ) {
-          my ($mode,$time,$ept,$lat,$lon,$alt,$epx,$epy,$epv,$track,$speed,$climb,$epd,$eps,$epc) =
-              @hash{'mode','time','ept','lat','lon','alt','epx','epy','epv','track','speed','climb','epd','eps','epc'};
-          print "time: $time\nept: $ept\nlat: $lat\nlon: $lon\nalt: $alt\nepx: $epx\nepy: $epy\nepv: $epv\ntrack: $track\nspeed: $speed\nclimb: $climb\nepd: $epd\neps: $eps\nepc: $epc\n";
-      }
-    }
-  #+END_SRC
-* MAIN PROGRAM [[file:./bin/globalsat-perl.pl][globalsat-perl.pl]]
-  #+BEGIN_SRC perl :tangle bin/globalsat-perl.pl :shebang #!/usr/bin/env perl :noweb yes
+* MAIN PROGRAM file:./bin/globalsat-perl.pl
+  #+BEGIN_SRC perl :tangle ./bin/globalsat-perl.pl :shebang #!/usr/bin/env perl :noweb yes
     <<globalsat-perl-pragma-block>>
     <<globalsat-perl-path-block>>
     <<globalsat-perl-configuration-block>>
@@ -47,6 +7,27 @@
     <<connect-to-gpsd-socket>>
     <<loop-block>>
   #+END_SRC
+** loop-block
+   #+NAME: loop-block
+   #+BEGIN_SRC perl
+     while ( my $json_line = <$gpsd_socket> ) {
+
+       my $hashref = decode_json($json_line);
+       my %hash = %$hashref;
+
+       my $class = $hash{'class'};
+
+       if ( $class eq 'TPV' ) {
+           my ($mode,$time,$ept,$lat,$lon,$alt,$epx,$epy,$epv,$track,$speed,$climb,$epd,$eps,$epc) =
+               @hash{'mode','time','ept','lat','lon','alt','epx','epy','epv','track','speed','climb','epd','eps','epc'};
+           # print "time: $time\nept: $ept\nlat: $lat\nlon: $lon\nalt: $alt\nepx: $epx\nepy: $epy\nepv: $epv\ntrack: $track\nspeed: $speed\nclimb: $climb\nepd: $epd\neps: $eps\nepc: $epc\n";
+           $speed *= 2.23694; # meters per second to miles per hour
+           $speed = sprintf("%.1f", $speed);
+           $track = sprintf("%.1f", $track);
+           print "$time, $lat, $lon, $speed, $track\n";
+       }
+     }
+   #+END_SRC
 ** help_subroutine
    #+NAME: help_subroutine
    #+BEGIN_SRC perl
@@ -96,7 +77,6 @@
                                                   
      # read configuration file                    
                                                   
-     print "$Bin <==\n";                          
      $config->file("$Bin/../conf/globalsat-perl.conf");            
                                                   
      my $VAR1 = $config->get("VAR1");             
@@ -131,9 +111,32 @@
    #+BEGIN_SRC perl
      
    #+END_SRC
+* Dependencies
+  | perl-dbd-pg          |   |
+  | postgresql           |   |
+  | perl-appconfig       |   |
+  | perl-io-socket-inet6 |   |
+  | perl-json            |   |
+
+* HTTP
+  1. http://search.cpan.org/~makamaka/JSON-2.90/lib/JSON.pm#decode_json
+  2. http://www.catb.org/gpsd/gpsd_json.html
+* [[file:./bin/globalsat-perl.pl][globalsat-perl.pl]]
+* Connecting to gpsd socket
+  #+NAME: connect-to-gpsd-socket
+  #+BEGIN_SRC perl
+    my $gpsd_socket = new IO::Socket::INET6 (
+        PeerAddr => 'localhost',
+        PeerPort => '2947',
+        Proto => 'tcp',
+        Blocking => 1
+        ) or die "Could not create socket: $!\n";
+
+    $gpsd_socket->send('?WATCH={"enable":true,"json":true}');
+  #+END_SRC
    
 * globalsat-perl Library (globalsat-perl.pm)
-** globalsat-perl.pm
+** globalsat-perl.pm file:./lib/globalsat-perl.pm
    #+BEGIN_SRC perl :tangle ./lib/globalsat-perl.pm :padline no :noweb yes
      use warnings;
      use strict;
