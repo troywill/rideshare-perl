@@ -26,31 +26,37 @@
     use DBI;
     my $dbh = DBI->connect("dbi:Pg:dbname=rideshare","","");
 
-    my $statement = "SELECT id, event_id, timestamp FROM event";
+    my $statement = "SELECT id,event_id, timestamp FROM event";
     my $array_ref = $dbh->selectall_arrayref($statement);
 
     foreach my $myRow (@$array_ref) {
       print "-" x 80, "\n";
-      my ( $id, $event_id, $timestamp ) = @$myRow;
+      my ( $id, $event, $timestamp ) = @$myRow;
       print "id: $id\n";
-      print "event_id: $event_id\n";
+      print "event: $event\n";
       print "timestamp: $timestamp\n";
     }
 
     $dbh->disconnect();
+  #+END_SRC
+* tangle file:./bin/read-gpspoint
+  #+BEGIN_SRC perl :tangle ./bin/read-gpspoint :shebang #!/usr/bin/env perl
+    use warnings;
+    use strict;
 
-    __END__
+    # connect to the database
+    use DBI;
+    my $dbh = DBI->connect("dbi:Pg:dbname=rideshare","","");
 
-    my $rs = $dbh->selectall_arrayref("SELECT '" . join("','", @fromFields
-    +) . "' FROM $fromTable");
+    my $statement = "SELECT id, timestamp, name, lat, lon, speed, heading FROM gpspoint";
+    my $array_ref = $dbh->selectall_arrayref($statement);
 
-
-    foreach my $myRow (@$rs) {
-      print "@$myRow\n";
-      foreach my $myElem (@$myRow) {
-        print "$myElem,";
-      }
-      print "\n";
+    foreach my $myRow (@$array_ref) {
+      print "-" x 80, "\n";
+      my ( $id, $timestamp, $name, $lat, $lon ) = @$myRow;
+      print "timestamp: $lat,$lon\n";
     }
 
+    $dbh->disconnect();
   #+END_SRC
+  
