@@ -1504,7 +1504,39 @@
     print 3 . 4 . (1+2) . 5+6, "\n"; #3441
     print 3 . 4 . (1+2) . (5+6), "\n"; #34311
   #+END_SRC
+  file:./tmp/haversine
+  #+BEGIN_SRC perl :tangle ./tmp/haversine  :shebang #!/usr/bin/env perl
+    # See https://en.wikipedia.org/wiki/Haversine_formula
+    # See https://rosettacode.org/wiki/Haversine_formula
 
-  #+RESULTS:
-  : 1
+    use warnings;
+    use strict;
+    use Math::Trig qw(deg2rad pi great_circle_distance asin acos);
 
+    print Haversine(36.12,-86.67,33.94,-118.40);
+
+    sub Haversine {
+        # dlon = lon2 - lon1
+        # dlat = lat2 - lat1
+        # a = (sin(dlat/2))^2 + cos(lat1) * cos(lat2) * (sin(dlon/2))^2
+        # c = 2 * atan2(sqrt(a), sqrt(1-a)) 
+        # d = R * c
+        my ($lat1, $long1, $lat2, $long2) = @_;
+        my $radius=6371000; # approximate earth radius in meters
+
+        my $dlong = deg2rad($long1) - deg2rad($long2);
+        my $dlat  = deg2rad($lat1) - deg2rad($lat2);
+
+        my $a = sin($dlat/2)**2 +cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dlong/2)**2;
+        my $c = 2 * (asin(sqrt($a))); # great circle distance in radians
+        my $dist = $radius * $c; # great circle distance in meters
+
+        return $dist;
+
+    }
+
+  #+END_SRC
+* kde settings from command line
+  
+  
+  

@@ -5,6 +5,8 @@
     <<globalsat-perl-configuration-block>>
     <<globalsat-perl-get-options-block>>
     <<connect-to-gpsd-socket>>
+    use DBI;
+    my $dbh = DBI->connect("dbi:Pg:dbname=rideshare","","");
     <<loop-block>>
   #+END_SRC
 ** loop-block
@@ -22,9 +24,11 @@
                @hash{'mode','time','ept','lat','lon','alt','epx','epy','epv','track','speed','climb','epd','eps','epc'};
            # print "time: $time\nept: $ept\nlat: $lat\nlon: $lon\nalt: $alt\nepx: $epx\nepy: $epy\nepv: $epv\ntrack: $track\nspeed: $speed\nclimb: $climb\nepd: $epd\neps: $eps\nepc: $epc\n";
            $speed *= 2.23694; # meters per second to miles per hour
-           $speed = sprintf("%.1f", $speed);
-           $track = sprintf("%.1f", $track);
+           $speed = sprintf("%d", $speed);
+           $track = sprintf("%d", $track);
            print "$time, $lat, $lon, $speed, $track\n";
+           my $sql_statement = "INSERT INTO gpspoint VALUES(DEFAULT,\'$time\',$lat,$lon,$epx,$epy,$epv,$speed,$track";
+           my $rv = $dbh->do($sql_statement);
        }
      }
    #+END_SRC
@@ -161,7 +165,6 @@
     #+END_SRC    
 *** globalsat-perl-second_subroutine
 *** globalsat-perl-third-subroutine
-
 
 * Testing => http://www.perl.org/about/whitepapers/perl-testing.html
 * Step By Step
