@@ -26,11 +26,15 @@
     use DBI;
     my $dbh = DBI->connect("dbi:Pg:dbname=rideshare","","");
 
-    my $statement = "SELECT id, time, event FROM event";
+    my $statement = "SELECT id, event_id, timestamp FROM event";
     my $array_ref = $dbh->selectall_arrayref($statement);
 
     foreach my $myRow (@$array_ref) {
-      print "@$myRow\n";
+      print "-" x 80, "\n";
+      my ( $id, $event_id, $timestamp ) = @$myRow;
+      print "id: $id\n";
+      print "event_id: $event_id\n";
+      print "timestamp: $timestamp\n";
     }
 
     $dbh->disconnect();
