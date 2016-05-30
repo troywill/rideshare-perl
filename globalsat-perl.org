@@ -1,3 +1,5 @@
+* http://stackoverflow.com/questions/26848091/execute-fail-in-perl-dbi
+* sudo kill -15 `cat /var/run/daemon.pid ` && sudo rm -v /var/run/daemon.pid
 * MAIN PROGRAM file:./bin/globalsat-perl.pl
   #+BEGIN_SRC perl :tangle ./bin/globalsat-perl.pl :shebang #!/usr/bin/env perl :noweb yes
     <<globalsat-perl-pragma-block>> 
@@ -113,6 +115,137 @@
    #+BEGIN_SRC perl
      
    #+END_SRC
+* GLOBALSAT-PERL DAEMON (Tangle file:./bin/globalsat-perl-daemon)
+  #+BEGIN_SRC perl :tangle ./bin/globalsat-perl-daemon :shebang #!/usr/bin/env perl :noweb yes
+    #################################################################
+    #
+    # daemon.pl                                         
+    # Programmer: Shawn Holland
+    # I am not responsible for anything.
+    #
+    #################################################################
+
+    use POSIX qw(setsid);
+    my $proc;
+    my $error;
+    my $file = "daemon.pl";
+    my $pidfile = ">/var/run/daemon.pid";
+    my $pid2check = "/var/run/daemon.pid";
+    my $pid;
+
+    <<globalsat-perl-pragma-block>> 
+    <<globalsat-perl-path-block>>
+    <<globalsat-perl-configuration-block>>
+    <<globalsat-perl-get-options-block>>
+    <<connect-to-gpsd-socket>>
+    use DBI;
+
+    #Make it a daemon
+    $proc = Daemonize();
+
+    my $dbh = DBI->connect("dbi:Pg:dbname=rideshare","troy","");
+
+    if (!$error) {
+        LogMessage("$file : PID $proc : Begin");
+    }
+
+    #Write Pid Information
+    if (!$error) {
+        if (-e $pid2check) {
+            LogMessage("$file : PID File $pid2check already exists. Exiting");
+            exit(0);
+        } else {
+            unless (open (FILE, $pidfile)) {
+                $error .= "Error opening file for writing " . $!;
+            }
+        }
+    }
+    if (!$error) {
+        LogMessage("$file : PID $proc : Writing pid information to $pidfile");
+        print FILE $proc . "\n";
+        close (FILE);
+    }
+
+
+    <<globalsat-perl-pragma-block>> 
+
+    #Main loop of Daemon
+    # while (!$error) {
+    #     sleep(1);
+    #     LogMessage("Hello World");
+    # }
+    <<loop-block>>
+    #End Main loop of Daemon
+
+
+    if ($error) {
+        LogMessage("$file : PID $proc : Error $error");
+    }
+
+    LogMessage("$file : PID $proc : END");
+
+    exit(0);
+
+    #
+    #Subs
+    #
+    #################################################################
+    #
+    #       Daemonize
+    #
+    #################################################################
+    #       
+    #       Used to make this program a daemon
+    #       Also to redirect STDIN, STDERR, STDOUT
+    #       Returns PID
+    #
+    #################################################################
+    sub Daemonize {
+
+        unless (chdir '/') {
+            $error .= "Can't chdir to /: $!";
+        }
+        unless (umask 0) {
+            $error .= "Unable to umask 0";
+        }
+
+        unless (open STDIN, '/dev/null') {
+            $error .= "Can't read /dev/null: $!";
+        }
+
+        #All print statments will now be sent to our log file
+        unless (open STDOUT, '>>/var/log/daemon.log') {
+            $error .= "Can't read /var/log/daemon.log: $!";
+        }
+        #All error messages will now be sent to our log file
+        unless (open STDERR, '>>/var/log/daemon.log') {
+            $error .= "Can't write to /var/log/daemon.log: $!";
+        }
+
+        defined($pid = fork);
+        #Exit if $pid exists (parent)
+        exit(0) if $pid;
+
+        #As Child
+        setsid();
+        $proc = $$;
+        return ($proc);
+    }
+
+    #################################################################
+    #
+    #       LogMessage
+    #
+    #################################################################
+    #
+    #       Used to log messages 
+    #
+    #################################################################
+    sub LogMessage {
+        my $message = $_[0];
+        print localtime() . " $message\n";
+    }
+  #+END_SRC
 * Dependencies
   | perl-dbd-pg          |   |
   | postgresql           |   |

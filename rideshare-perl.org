@@ -1,3 +1,98 @@
+* Tangle ./bin/rideshare-menu
+  #+BEGIN_SRC perl :tangle ./bin/rideshare-menu :shebang #!/usr/bin/env perl
+    use warnings;
+    use strict;
+
+    use Term::ReadKey;
+    my $gps_location_app = './gpslocation.pl';
+    my $logfile = '/home/troy/rideshare/log/160421.log';
+    $logfile = '/tmp/rideshare.log';
+    my $key = '';
+    my $event = '';
+    my $status = 'waiting ...';
+    my $clear = `clear`;
+    my $menu = menu();
+
+    sub menu {
+        
+        my $status = shift;
+
+        my $menu = <<"END";
+        --------------
+        1. Receive Ping
+        2. Accept Ping
+
+        4. Arrive Vicinity
+        5. Manuvering
+
+        6. Start Trip
+        7. End Trip
+
+        8. Waypoint
+        9. Open log.org
+    END
+        return $menu;
+    }
+
+    ReadMode 4; # Turn off controls keys
+    while ( $key ne 'q' ) {
+        while (not defined ($key = ReadKey(-1))) {
+            sleep 1;
+            print $clear;
+            chomp(my $date = `date`);
+            print  "$date [$status]\n";
+            print $menu;
+        }
+
+        if ( $key eq '1' ) {
+            $event = "Receive Ping";
+        } elsif ( $key eq '2' ) {
+            $event = "Accept Ping";
+        } elsif ( $key eq '6' ) {
+            $event = "Start Trip";
+            $status = "Trip started ...";
+        } elsif ( $key eq '7' ) {
+            $event = "End Trip";
+            $status = "Trip ended.";
+        }
+
+        last if ( $key eq 'q' );
+        log_event($event);
+    }
+    print "Get key $key\n";
+    print "Event $event\n";
+    ReadMode 0; # Reset tty mode before exiting
+
+    sub log_event {
+       my $event = shift;
+
+       if ( $event eq "Receive Ping" ) {
+           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
+           print "==> $command\n";
+           system($command);
+           system('./screenshot receive_ping');
+       } elsif ( $event eq "Ignore Ping" ) {
+           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
+           print "==> $command\n";
+           system($command);
+       } elsif ( $event eq "Accept Ping" ) {
+           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
+           print "==> $command\n";
+           system($command);
+       } elsif ( $event eq "Start Trip" ) {
+           my $command = "write-event 1 >> $logfile";
+           print "==> $command\n";
+           system($command);
+       } elsif ( $event eq "End Trip" ) {
+           my $command = "write-event 2 >> $logfile";
+           print "==> $command\n";
+           system($command);
+       }
+
+    }
+
+  #+END_SRC
+
 * Step By Step
   1. [ ] Tangle ./gpslocation.pl to be able to write gps location to file
      1. [ ] pacman --sync perl-io-socket-inet6
@@ -1356,83 +1451,6 @@
 | $base_dir | rideshare images directory | screenshot |
 |           |                            |               |
 ** Renaming notes
-* Tangle rideshare-menu.pl
-  #+BEGIN_SRC perl :tangle ./rideshare-menu.pl :shebang #!/usr/bin/env perl
-    use warnings;
-    use strict;
-
-    use Term::ReadKey;
-    my $gps_location_app = './gpslocation.pl';
-    my $logfile = '/home/troy/rideshare/log/160421.log';
-    my $key = '';
-    my $event = '';
-    my $clear = `clear`;
-    my $menu = menu();
-
-    ReadMode 4; # Turn off controls keys
-    while ( $key ne 'q' ) {
-        while (not defined ($key = ReadKey(-1))) {
-            sleep 1;
-            print $clear;
-            print `date`;
-            print $menu;
-        }
-
-        if ( $key eq '1' ) {
-            $event = "Receive Ping";
-        } elsif ( $key eq '2' ) {
-            $event = "Ignore Ping";
-        } elsif ( $key eq '3' ) {
-            $event = "Accept Ping";
-        }
-
-        last if ( $key eq 'q' );
-        log_event($event);
-    }
-    print "Get key $key\n";
-    print "Event $event\n";
-    ReadMode 0; # Reset tty mode before exiting
-
-    sub log_event {
-       my $event = shift;
-
-       if ( $event eq "Receive Ping" ) {
-           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
-           print "==> $command\n";
-           system($command);
-	   system('./screenshot receive_ping');
-       } elsif ( $event eq "Ignore Ping" ) {
-           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
-           print "==> $command\n";
-           system($command);
-       } elsif ( $event eq "Accept Ping" ) {
-           my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
-           print "==> $command\n";
-           system($command);
-       }
-
-    }
-
-    sub menu {
-
-        my $menu = <<"END";
-        --------------
-        1. Receive Ping
-        2. Ignore Ping
-        3. Accept Ping
-
-        4. Arrive Vicinity
-        5. Manuvering
-
-        6. Start Trip
-        7. End Trip
-
-        8. Waypoint
-        9. Open log.org
-    END
-        return $menu;
-    }
-  #+END_SRC
 * log.pl
   #+BEGIN_SRC perl
     #!/usr/bin/env perl

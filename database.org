@@ -1,0 +1,42 @@
+* Create a new database with [[http://www.postgresql.org/docs/current/static/app-createdb.html][createdb]]
+  #+BEGIN_SRC sh :tangle ./script/create-rideshare-database-with-createdb :shebang #!/bin/bash
+    set -o nounset
+    dbname="rideshare"
+    owner=$USER
+
+    COMMAND="createdb ${dbname} --owner ${USER}"
+    echo ${COMMAND}
+    ${COMMAND}
+  #+END_SRC
+  1. Run creatdb
+     #+BEGIN_SRC sh
+       createdb demo --owner railsapp
+     #+END_SRC
+* psql --file ./sql/foo.sql rideshare
+* Create gpspoint table (tangle ./sql/create-table-gpspoint.sql)
+  #+BEGIN_SRC sql :tangle ./sql/create-table-gpspoint.sql
+    DROP TABLE gpspoint;
+    CREATE TABLE gpspoint (
+           id serial,
+           timestamp timestamp with time zone,
+           name varchar(64),
+           lat float8,
+           lon float8,
+           epx float8,
+           epy float8,
+           epv float8,
+           speed float8,
+           heading int
+    )
+  #+END_SRC
+  
+* Create event table (tangle file:./sql/create-table-event.sql)
+  #+BEGIN_SRC sql :tangle ./sql/create-table-event.sql
+    DROP TABLE event;
+    CREATE TABLE event (
+           id serial,
+           event int, 
+          timestamp timestamp with time zone
+    )
+  #+END_SRC
+  
