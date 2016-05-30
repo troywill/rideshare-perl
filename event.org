@@ -1,5 +1,5 @@
-* tangle file:./bin/event
-  #+BEGIN_SRC perl :tangle ./bin/event :shebang #!/usr/bin/env perl
+* tangle file:./bin/write-event
+  #+BEGIN_SRC perl :tangle ./bin/write-event :shebang #!/usr/bin/env perl
     use warnings;
     use strict;
 
@@ -17,8 +17,8 @@
     }
   #+END_SRC
 
-* tangle file:./bin/event-read
-  #+BEGIN_SRC perl :tangle ./bin/event-read :shebang #!/usr/bin/env perl
+* tangle file:./bin/read-event
+  #+BEGIN_SRC perl :tangle ./bin/read-event :shebang #!/usr/bin/env perl
     use warnings;
     use strict;
 
@@ -52,9 +52,8 @@
     my $array_ref = $dbh->selectall_arrayref($statement);
 
     foreach my $myRow (@$array_ref) {
-      print "-" x 80, "\n";
       my ( $id, $timestamp, $name, $lat, $lon ) = @$myRow;
-      print "timestamp: $lat,$lon\n";
+      print "$timestamp: $lat,$lon\n";
     }
 
     $dbh->disconnect();

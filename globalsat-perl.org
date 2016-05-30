@@ -1,6 +1,6 @@
 * MAIN PROGRAM file:./bin/globalsat-perl.pl
   #+BEGIN_SRC perl :tangle ./bin/globalsat-perl.pl :shebang #!/usr/bin/env perl :noweb yes
-    <<globalsat-perl-pragma-block>>
+    <<globalsat-perl-pragma-block>> 
     <<globalsat-perl-path-block>>
     <<globalsat-perl-configuration-block>>
     <<globalsat-perl-get-options-block>>
@@ -26,8 +26,8 @@
            $speed *= 2.23694; # meters per second to miles per hour
            $speed = sprintf("%d", $speed);
            $track = sprintf("%d", $track);
-           print "$time, $lat, $lon, $speed, $track\n";
-           my $sql_statement = "INSERT INTO gpspoint VALUES(DEFAULT,\'$time\',$lat,$lon,$epx,$epy,$epv,$speed,$track";
+           my $name = "";
+           my $sql_statement = "INSERT INTO gpspoint VALUES(DEFAULT,\'$time\',\'$name\',$lat,$lon,$epx,$epy,$epv,$speed,$track)";
            my $rv = $dbh->do($sql_statement);
        }
      }
@@ -84,8 +84,6 @@
      $config->file("$Bin/../conf/globalsat-perl.conf");            
                                                   
      my $VAR1 = $config->get("VAR1");             
-                                                  
-     print "VAR1 = $VAR1\n";                      
      ############ end configuration-block ####### 
    #+END_SRC					 
 *** Configuration file

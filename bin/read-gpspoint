@@ -11,9 +11,8 @@ my $statement = "SELECT id, timestamp, name, lat, lon, speed, heading FROM gpspo
 my $array_ref = $dbh->selectall_arrayref($statement);
 
 foreach my $myRow (@$array_ref) {
-  print "-" x 80, "\n";
   my ( $id, $timestamp, $name, $lat, $lon ) = @$myRow;
-  print "timestamp: $lat,$lon\n";
+  print "$timestamp: $lat,$lon\n";
 }
 
 $dbh->disconnect();
