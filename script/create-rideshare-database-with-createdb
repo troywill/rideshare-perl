@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -o nounset
+dbname="rideshare"
+owner=$USER
+
+COMMAND="createdb ${dbname} --owner ${USER}"
+echo ${COMMAND}
+${COMMAND}
