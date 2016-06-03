@@ -2,6 +2,6 @@
 DROP TABLE event;
 CREATE TABLE event (
        id serial,
-       event int, 
-      timestamp timestamp with time zone
+       event_type int, 
+       timestamp timestamp with time zone
 )
