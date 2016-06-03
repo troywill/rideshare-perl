@@ -9,12 +9,10 @@
     use DBI;
     my $dbh = DBI->connect("dbi:Pg:dbname=rideshare","","");
 
-    my $event_id = $ARGV[0] or die "event_id ?";
+    my $event_type = $ARGV[0] or die "event_type ?";
 
-    print "==> $event_id\n";
-    my $statement = "INSERT INTO event VALUES(DEFAULT, $event_id, now())";
+    my $statement = "INSERT INTO event VALUES(DEFAULT, $event_type, now())";
     $dbh->do($statement);
-
   #+END_SRC
 
 * tangle file:./bin/read-event
@@ -26,14 +24,14 @@
     use DBI;
     my $dbh = DBI->connect("dbi:Pg:dbname=rideshare","","");
 
-    my $statement = "SELECT id,event_id, timestamp FROM event";
+    my $statement = "SELECT id, event_type, timestamp FROM event";
     my $array_ref = $dbh->selectall_arrayref($statement);
 
     foreach my $myRow (@$array_ref) {
       print "-" x 80, "\n";
-      my ( $id, $event, $timestamp ) = @$myRow;
+      my ( $id, $event_type, $timestamp ) = @$myRow;
       print "id: $id\n";
-      print "event: $event\n";
+      print "event_type: $event_type\n";
       print "timestamp: $timestamp\n";
     }
 
