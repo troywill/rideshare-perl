@@ -7,11 +7,11 @@ use strict;
 use DBI;
 my $dbh = DBI->connect("dbi:Pg:dbname=rideshare","","");
 
-my $statement = "SELECT id,event_id, timestamp FROM event";
+my $statement = "SELECT id,event_id, timestamp FROM event order by id";
 my $array_ref = $dbh->selectall_arrayref($statement);
 
 foreach my $myRow (@$array_ref) {
-  print "-" x 80, "\n";
+  print "-" x 40, "\n";
   my ( $id, $event, $timestamp ) = @$myRow;
   print "id: $id\n";
   print "event: $event\n";

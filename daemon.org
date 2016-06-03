@@ -114,3 +114,6 @@
         print localtime() . " $message\n";
     }  
   #+END_SRC
+* http://www.perlmonks.org/?node_id=1073446
+* https://hashbang.ca/2012/04/16/wherein-i-realize-the-bliss-of-writing-init-scripts-with-daemoncontrol
+* http://search.cpan.org/~akreal/Proc-Daemon-0.23/lib/Proc/Daemon.pod

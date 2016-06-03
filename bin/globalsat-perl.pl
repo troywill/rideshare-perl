@@ -66,6 +66,7 @@ while ( my $json_line = <$gpsd_socket> ) {
       $track = sprintf("%d", $track);
       my $name = "";
       my $sql_statement = "INSERT INTO gpspoint VALUES(DEFAULT,\'$time\',\'$name\',$lat,$lon,$epx,$epy,$epv,$speed,$track)";
-      my $rv = $dbh->do($sql_statement);
+      # my $rv = $dbh->do($sql_statement);
+      print "$track,$speed\n";
   }
 }

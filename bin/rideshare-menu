@@ -46,6 +46,7 @@ while ( $key ne 'q' ) {
 
     if ( $key eq '1' ) {
         $event = "Receive Ping";
+	$status = "receive_ping";
     } elsif ( $key eq '2' ) {
         $event = "Accept Ping";
     } elsif ( $key eq '6' ) {
@@ -67,10 +68,15 @@ sub log_event {
    my $event = shift;
 
    if ( $event eq "Receive Ping" ) {
-       my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
+
+       my $command = "write-event 3 >> $logfile";
        print "==> $command\n";
        system($command);
-       system('./screenshot receive_ping');
+
+       # my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
+       # print "==> $command\n";
+       # system($command);
+       # system('./screenshot receive_ping');
    } elsif ( $event eq "Ignore Ping" ) {
        my $command = "$gps_location_app '" . ${event} . "' >> $logfile";
        print "==> $command\n";

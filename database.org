@@ -36,7 +36,19 @@
     CREATE TABLE event (
            id serial,
            event int, 
-          timestamp timestamp with time zone
+           timestamp timestamp with time zone
     )
   #+END_SRC
+* Create trip table
+  #+BEGIN_SRC sql :tangle ./sql/create-table-event.sql
+    DROP TABLE trip;
+    CREATE TABLE trip (
+           id serial,
+           day_of_year int,
+           start_time timestamp timestamp with time zone,
+           
+    )
+  #+END_SRC
+  
+
   
